@@ -108,7 +108,7 @@ def get_emergency_guidance(context, collection):
         List containing [RAG_extraction, LLM_response]
     """
     try:
-        host = "https://hackathon-ia-et-crise.fr/admin/rag-system"
+        host = "https://hackathon-ia-et-crise.fr/crise1/rag-system"
         
         # Ensure collection is properly formatted
         if isinstance(collection, list):
@@ -171,32 +171,67 @@ def get_emergency_guidance(context, collection):
             retrieval_content = json.dumps(rag_extraction, indent=2)
         
         # Prepare Claude API request
-        claude_api_url = "https://api.anthropic.com/v1/messages"
+        claude_api_url = "https://api.mistral.ai/v1/chat/completions"
         
+        # guidance_system_prompt = """
+        # You are an emergency response assistant. Use the provided retrieved information to give guidance for the emergency situation described.
+        
+        # Provide a comprehensive response in JSON format with the following structure:
+        # {
+        #     "summary": "Brief summary of immediate actions",
+        #     "steps": [
+        #         {"step": 1, "title": "Step title", "description": "Detailed instruction"},
+        #         ...
+        #     ],
+        #     "checklist": [
+        #         "Checklist item 1",
+        #         "Checklist item 2",
+        #         ...
+        #     ],
+        #     "sources": [
+        #         {"title": "Source document title", "relevance": "Relevance description"}
+        #     ]
+        # }
+        # """
         guidance_system_prompt = """
-        You are an emergency response assistant. Use the provided retrieved information to give guidance for the emergency situation described.
-        
-        Provide a comprehensive response in JSON format with the following structure:
-        {
-            "summary": "Brief summary of immediate actions",
-            "steps": [
-                {"step": 1, "title": "Step title", "description": "Detailed instruction"},
-                ...
-            ],
-            "checklist": [
-                "Checklist item 1",
-                "Checklist item 2",
-                ...
-            ],
-            "sources": [
-                {"title": "Source document title", "relevance": "Relevance description"}
-            ]
-        }
-        """
+You are a crisis simulation assistant specialized in emergency response.
+
+Your task is to generate a realistic emergency scenario based on a list of nearby geographic risks. Use the retrieved context and training material (if provided) to guide your simulation.
+
+🔹 Your output MUST be in strict JSON format with the following structure:
+
+{
+    "scenario": "Title of the crisis scenario (e.g., Flash Flood in Marseille)",
+    "location": "Name of affected location (city or region)",
+    "summary": "Brief overview of the situation",
+    "steps": [
+        {"step": 1, "title": "Step title", "description": "Detailed emergency response action"},
+        ...
+    ],
+    "checklist": [
+        "Item 1 to check or do",
+        "Item 2...",
+        ...
+    ],
+    "sources": [
+        {"title": "Source document or protocol", "relevance": "How this source applies to the current scenario"}
+    ]
+}
+
+🔹 Make sure to:
+
+- Pick one risk from the provided list (prefer the most severe or imminent)
+- Ground your response in real crisis logic (evacuation, first aid, communication, etc.)
+- Keep it informative but concise
+- Use terms appropriate for emergency responders and first aid trainees
+
+Respond only in JSON. No prose before or after.
+"""
         
         guidance_user_prompt = f"""
         Emergency situation:
         Situation: {context["situation"]}
+        Geolocation:{context["geoloc"]}
         Emergency Type: {context["emergency_type"]}
         Severity: {context["severity"]}
         Age Group: {context["age_group"]}
@@ -208,18 +243,25 @@ def get_emergency_guidance(context, collection):
         # Prepare Claude API request
         claude_headers = {
             "Content-Type": "application/json",
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01"
+            "Authorization": "Bearer YEfdhXjXjNfyjjqy7Am1deRKZ9OAYFTx"
         }
         
         claude_data = {
-            "model": "claude-3-haiku-20240307",
+            "model": "mistral-large-latest",
             "max_tokens": 1000,
-            "system": guidance_system_prompt,
             "messages": [
+                {"role":"system","content":guidance_system_prompt},
                 {"role": "user", "content": guidance_user_prompt}
             ]
         }
+        # claude_data = {
+        #     "model": "claude-3-haiku-20240307",
+        #     "max_tokens": 1000,
+        #     "system": guidance_system_prompt,
+        #     "messages": [
+        #         {"role": "user", "content": guidance_user_prompt}
+        #     ]
+        # }
         
         # Make the request to Claude API
         claude_response = requests.post(
@@ -227,16 +269,18 @@ def get_emergency_guidance(context, collection):
             headers=claude_headers,
             json=claude_data
         )
+        print(claude_response)
         
         if claude_response.status_code != 200:
             st.error(f"Failed to get Claude response: {claude_response.status_code}")
             st.error(f"Response: {claude_response.text}")
             return [rag_extraction, None]
-        
+        # print(claude_response.get('Content-Type'))
         claude_result = claude_response.json()
+        print(claude_result)
         
         # Extract the content from the Claude response
-        llm_text = claude_result.get('content', [{'text': ''}])[0].get('text', '')
+        llm_text = claude_result.get('choices', [{}])[0].get('message', {}).get('content','')
         
         # Try to parse as JSON
         try:
